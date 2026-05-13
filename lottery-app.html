@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<title>转盘抽签</title>
+
+<style>
+
+*{
+    box-sizing:border-box;
+}
+
+body{
+    margin:0;
+    padding:20px;
+    background:#121212;
+    color:white;
+    font-family:Arial,sans-serif;
+    display:flex;
+    justify-content:center;
+}
+
+.container{
+    width:100%;
+    max-width:520px;
+}
+
+h1{
+    text-align:center;
+    margin-bottom:20px;
+}
+
+.canvas-wrapper{
+    position:relative;
+    width:100%;
+    display:flex;
+    justify-content:center;
+    margin-top:10px;
+}
+
+.pointer{
+    position:absolute;
+    top:-8px;
+    font-size:42px;
+    z-index:10;
+    color:#ff5252;
+}
+
+canvas{
+    background:#1f1f1f;
+    border-radius:50%;
+    box-shadow:0 0 20px rgba(0,0,0,0.4);
+}
+
+.result-box{
+    margin-top:20px;
+    background:#1f1f1f;
+    border-radius:18px;
+    padding:20px;
+    text-align:center;
+}
+
+.result-label{
+    color:#999;
+    font-size:14px;
+}
+
+.result{
+    margin-top:10px;
+    font-size:40px;
+    font-weight:bold;
+    color:#ffd54f;
+    min-height:50px;
+}
+
+.buttons{
+    display:flex;
+    gap:10px;
+    margin-top:20px;
+}
+
+button{
+    flex:1;
+    padding:15px;
+    border:none;
+    border-radius:14px;
+    font-size:16px;
+    cursor:pointer;
+}
+
+.start{
+    background:#4caf50;
+    color:white;
+}
+
+.stop{
+    background:#f44336;
+    color:white;
+}
+
+.settings-btn{
+    margin-top:20px;
+    width:100%;
+    background:#333;
+    color:white;
+}
+
+.settings{
+    margin-top:15px;
+    background:#1f1f1f;
+    border-radius:18px;
+    padding:15px;
+    display:none;
+}
+
+textarea{
+    width:100%;
+    height:180px;
+    margin-top:10px;
+    background:#2a2a2a;
+    color:white;
+    border:none;
+    border-radius:12px;
+    padding:12px;
+    resize:none;
+    font-size:15px;
+}
+
+select{
+    width:100%;
+    padding:12px;
+    margin-top:10px;
+    border:none;
+    border-radius:12px;
+    background:#2a2a2a;
+    color:white;
+}
+
+.checkbox{
+    margin-top:15px;
+}
+
+.small-btn{
+    width:100%;
+    margin-top:12px;
+    background:#555;
+    color:white;
+}
+
+.picked{
+    margin-top:20px;
+    background:#1f1f1f;
+    border-radius:18px;
+    padding:15px;
+}
+
+.picked-list{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+}
+
+.tag{
+    background:#333;
+    padding:8px 12px;
+    border-radius:999px;
+}
+
+.tip{
+    margin-top:10px;
+    text-align:center;
+    color:#777;
+    font-size:13px;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>🎲 转盘抽签</h1>
+
+<div class="canvas-wrapper">
+
+    <div class="pointer">▼</div>
+
+    <canvas id="wheelCanvas" width="400" height="400"></canvas>
+
+</div>
+
+<div class="result-box">
+
+    <div class="result-label">当前结果</div>
+
+    <div class="result" id="result">---</div>
+
+</div>
+
+<div class="buttons">
+
+    <button class="start" onclick="startSpin()">开始</button>
+
+    <button class="stop" onclick="forceStop()">停止</button>
+
+</div>
+
+<button class="settings-btn" onclick="toggleSettings()">
+⚙ 设置
+</button>
+
+<div class="settings" id="settingsPanel">
+
+    <label>抽取模式</label>
+
+    <select id="modeSelect">
+        <option value="wheel">转盘模式</option>
+        <option value="rolling">滚动模式</option>
+    </select>
+
+    <textarea id="namesInput"></textarea>
+
+    <div class="checkbox">
+        <input type="checkbox" id="noRepeat" checked>
+        <label for="noRepeat">不重复抽取</label>
+    </div>
+
+    <button class="small-btn" onclick="saveData()">
+        保存设置
+    </button>
+
+    <button class="small-btn" onclick="resetPicked()">
+        重置已抽中
+    </button>
+
+</div>
+
+<div class="picked">
+
+    <h3>已抽中</h3>
+
+    <div class="picked-list" id="pickedList"></div>
+
+</div>
+
+<div class="tip">
+关闭网页后数据会自动保存
+</div>
+
+</div>
+
+<script>
+
+const canvas = document.getElementById("wheelCanvas");
+const ctx = canvas.getContext("2d");
+
+let rotation = 0;
+let spinning = false;
+let spinVelocity = 0;
+
+let currentName = "";
+let picked = [];
+
+let rollingTimer = null;
+
+const colors = [
+    "#f44336",
+    "#e91e63",
+    "#9c27b0",
+    "#673ab7",
+    "#3f51b5",
+    "#2196f3",
+    "#009688",
+    "#4caf50",
+    "#ff9800",
+    "#795548"
+];
+
+loadData();
+
+function getNames(){
+
+    const raw =
+        document.getElementById("namesInput").value;
+
+    const names = raw
+        .split("\n")
+        .map(v => v.trim())
+        .filter(v => v);
+
+    const noRepeat =
+        document.getElementById("noRepeat").checked;
+
+    if(noRepeat){
+        return names.filter(n => !picked.includes(n));
+    }
+
+    return names;
+}
+
+function drawWheel(){
+
+    const names = getNames();
+
+    ctx.clearRect(0,0,400,400);
+
+    if(names.length === 0){
+
+        ctx.fillStyle = "#999";
+        ctx.font = "24px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("请添加名单",200,200);
+
+        return;
+    }
+
+    const centerX = 200;
+    const centerY = 200;
+    const radius = 180;
+
+    const anglePer =
+        (Math.PI * 2) / names.length;
+
+    ctx.save();
+
+    ctx.translate(centerX,centerY);
+
+    ctx.rotate(rotation);
+
+    for(let i=0;i<names.length;i++){
+
+        const start =
+            i * anglePer;
+
+        const end =
+            start + anglePer;
+
+        ctx.beginPath();
+
+        ctx.moveTo(0,0);
+
+        ctx.arc(
+            0,
+            0,
+            radius,
+            start,
+            end
+        );
+
+        ctx.closePath();
+
+        ctx.fillStyle =
+            colors[i % colors.length];
+
+        ctx.fill();
+
+        ctx.save();
+
+        ctx.rotate(start + anglePer / 2);
+
+        ctx.textAlign = "right";
+
+        ctx.fillStyle = "white";
+
+        ctx.font = "18px Arial";
+
+        ctx.fillText(
+            names[i],
+            radius - 20,
+            6
+        );
+
+        ctx.restore();
+    }
+
+    ctx.beginPath();
+
+    ctx.arc(0,0,40,0,Math.PI*2);
+
+    ctx.fillStyle = "#222";
+
+    ctx.fill();
+
+    ctx.restore();
+}
+
+function animate(){
+
+    if(!spinning){
+        return;
+    }
+
+    rotation += spinVelocity;
+
+    spinVelocity *= 0.985;
+
+    drawWheel();
+
+    if(spinVelocity < 0.002){
+
+        spinning = false;
+
+        calculateResult();
+
+        return;
+    }
+
+    requestAnimationFrame(animate);
+}
+
+function startSpin(){
+
+    const mode =
+        document.getElementById("modeSelect").value;
+
+    if(mode === "rolling"){
+
+        startRolling();
+
+        return;
+    }
+
+    const names = getNames();
+
+    if(names.length === 0){
+
+        alert("没有可抽取的人");
+
+        return;
+    }
+
+    if(spinning){
+        return;
+    }
+
+    spinVelocity =
+        0.35 + Math.random() * 0.15;
+
+    spinning = true;
+
+    document.getElementById("result").innerText =
+        "抽取中...";
+
+    animate();
+}
+
+function calculateResult(){
+
+    const names = getNames();
+
+    if(names.length === 0){
+        return;
+    }
+
+    const normalized =
+        (Math.PI * 2 - (rotation % (Math.PI*2)))
+        % (Math.PI*2);
+
+    const anglePer =
+        (Math.PI * 2) / names.length;
+
+    const index =
+        Math.floor(normalized / anglePer)
+        % names.length;
+
+    currentName = names[index];
+
+    document.getElementById("result").innerText =
+        currentName;
+
+    if(!picked.includes(currentName)){
+
+        picked.push(currentName);
+
+        savePicked();
+
+        renderPicked();
+    }
+}
+
+function startRolling(){
+
+    const names = getNames();
+
+    if(names.length === 0){
+
+        alert("没有可抽取的人");
+
+        return;
+    }
+
+    clearInterval(rollingTimer);
+
+    rollingTimer = setInterval(() => {
+
+        const randomIndex =
+            Math.floor(Math.random()*names.length);
+
+        currentName =
+            names[randomIndex];
+
+        document.getElementById("result").innerText =
+            currentName;
+
+    },80);
+}
+
+function forceStop(){
+
+    const mode =
+        document.getElementById("modeSelect").value;
+
+    if(mode === "rolling"){
+
+        clearInterval(rollingTimer);
+
+        if(currentName &&
+           !picked.includes(currentName)){
+
+            picked.push(currentName);
+
+            savePicked();
+
+            renderPicked();
+        }
+
+        return;
+    }
+
+    spinVelocity *= 0.2;
+}
+
+function toggleSettings(){
+
+    const panel =
+        document.getElementById("settingsPanel");
+
+    if(panel.style.display === "block"){
+
+        panel.style.display = "none";
+
+    }else{
+
+        panel.style.display = "block";
+    }
+}
+
+function saveData(){
+
+    localStorage.setItem(
+        "lottery_names",
+        document.getElementById("namesInput").value
+    );
+
+    localStorage.setItem(
+        "lottery_mode",
+        document.getElementById("modeSelect").value
+    );
+
+    drawWheel();
+
+    alert("已保存");
+}
+
+function savePicked(){
+
+    localStorage.setItem(
+        "lottery_picked",
+        JSON.stringify(picked)
+    );
+}
+
+function loadData(){
+
+    const names =
+        localStorage.getItem("lottery_names");
+
+    const mode =
+        localStorage.getItem("lottery_mode");
+
+    const pickedData =
+        localStorage.getItem("lottery_picked");
+
+    if(pickedData){
+
+        picked = JSON.parse(pickedData);
+    }
+
+    window.onload = () => {
+
+        if(names){
+
+            document.getElementById("namesInput").value =
+                names;
+
+        }else{
+
+            document.getElementById("namesInput").value =
+`张三
+李四
+王五
+赵六`;
+        }
+
+        if(mode){
+
+            document.getElementById("modeSelect").value =
+                mode;
+        }
+
+        drawWheel();
+
+        renderPicked();
+    };
+}
+
+function renderPicked(){
+
+    const container =
+        document.getElementById("pickedList");
+
+    container.innerHTML = "";
+
+    picked.forEach(name => {
+
+        const div =
+            document.createElement("div");
+
+        div.className = "tag";
+
+        div.innerText = name;
+
+        container.appendChild(div);
+    });
+}
+
+document
+.getElementById("modeSelect")
+.addEventListener("change",drawWheel);
+
+</script>
+
+</body>
+</html>
